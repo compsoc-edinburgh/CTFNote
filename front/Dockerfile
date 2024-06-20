@@ -13,6 +13,10 @@ WORKDIR /usr/src/app
 
 RUN yarn build
 
+ARG ADMIN_API_PASSWORD
+RUN apk update && apk add apache2-utils
+RUN htpasswd -b -c /htpasswd_admin_api bot ${ADMIN_API_PASSWORD}
+
 # _--------_
 FROM nginx@sha256:5ba534070ae1e5e83d52141b11ddced689b476c0001e7205f50979dc0cbdde3d
 
@@ -21,3 +25,5 @@ RUN mkdir -p /logs
 COPY --from=build-deps /usr/src/app/dist/spa /usr/share/nginx/html
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+COPY --from=build-deps /htpasswd_admin_api /etc/nginx/htpasswd_admin_api

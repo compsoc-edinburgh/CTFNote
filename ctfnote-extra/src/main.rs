@@ -68,6 +68,7 @@ async fn link_discord(
 
 #[tokio::main]
 async fn main() {
+    eprintln!("Server started");
     // load config
     let config = config().await;
 

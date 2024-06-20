@@ -45,6 +45,8 @@ services:
       - ctfnote-db:/var/lib/postgresql/data
     networks:
       - ctfnote
+    ports:
+      - 127.0.0.1:5433:5432
   front:
     image: ghcr.io/tfns/ctfnote/front:latest
     networks:
@@ -53,7 +55,7 @@ services:
     build:
       context: "./front"
       args:
-      - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-}
+      - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-admin_api_password}
     depends_on:
       - hedgedoc
     ports:
