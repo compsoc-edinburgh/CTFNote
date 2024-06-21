@@ -1,3 +1,4 @@
+use core::fmt;
 use std::time::Duration;
 
 use axum::{
@@ -6,12 +7,29 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use jsonwebtoken::get_current_timestamp;
 use serde::{Deserialize, Serialize};
+use sqlx;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 
 use crate::config::config;
 
 mod config;
+
+async fn get_user_by_token(pool: &PgPool, token: String) -> Option<i32> {
+    sqlx::query_scalar("SELECT u.id FROM ctfnote_private.user as u JOIN ctfnote.profile as profile ON u.id = profile.id WHERE u.token = $1 AND discord_id is NULL")
+        .bind(&token)
+        .fetch_optional(pool)
+        .await.expect("Failed to get user id from token")
+}
+
+async fn get_user_by_discord_id(pool: &PgPool, discord_id: String) -> Option<i32> {
+    sqlx::query_scalar("SELECT id FROM ctfnote.profile WHERE discord_id = $1 LIMIT 1")
+        .bind(&discord_id)
+        .fetch_optional(pool)
+        .await
+        .expect("Failed to get user id from discord id")
+}
 
 #[derive(Deserialize)]
 struct LinkDiscordRequest {
@@ -31,11 +49,8 @@ async fn link_discord(
     let token = link_discord_request.token;
 
     // get user id from token
-    let query_result: Option<i32> = sqlx::query_scalar("SELECT u.id FROM ctfnote_private.user as u JOIN ctfnote.profile as profile ON u.id = profile.id WHERE u.token = $1 AND discord_id is NULL")
-        .bind(&token)
-        .fetch_optional(&pool)
-        .await.expect("Failed to get user id from token");
-    let Some(user_id) = query_result else {
+    let result = get_user_by_token(&pool, token).await;
+    let Some(user_id) = result else {
         return (
             StatusCode::BAD_REQUEST,
             Json(LinkDiscordResponse {
@@ -66,6 +81,117 @@ async fn link_discord(
     );
 }
 
+#[derive(Deserialize)]
+struct GenerateJwtRequest {
+    discord_id: String,
+}
+
+#[derive(Serialize)]
+struct GenerateJwtResponse {
+    jwt: Option<String>,
+    message: String,
+}
+
+#[derive(sqlx::Type, Debug)]
+#[sqlx(type_name = "jwt")]
+struct Jwt {
+    user_id: i32,
+    role: Option<Role>,
+    exp: i64,
+}
+
+#[derive(sqlx::Type, Debug, Clone)]
+#[sqlx(type_name = "role")] // only for PostgreSQL to match a type definition
+#[sqlx(rename_all = "snake_case")]
+enum Role {
+    UserGuest,
+    UserMember,
+    UserManager,
+    UserAdmin,
+}
+
+impl Serialize for Role {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let display = match self {
+            Role::UserGuest => "user_guest",
+            Role::UserMember => "user_member",
+            Role::UserManager => "user_manager",
+            Role::UserAdmin => "user_admin",
+        };
+        serializer.serialize_str(display)
+    }
+}
+
+#[derive(Serialize)]
+struct JwtClaim {
+    user_id: i32,
+    role: Role,
+    exp: usize,
+    iat: usize,
+    aud: String,
+    iss: String
+}
+
+async fn generate_jwt(
+    State(pool): State<PgPool>,
+    Json(request): Json<GenerateJwtRequest>,
+) -> (StatusCode, Json<GenerateJwtResponse>) {
+    let config = config().await;
+    let discord_id = request.discord_id;
+
+    let result = get_user_by_discord_id(&pool, discord_id).await;
+    let Some(user_id) = result else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(GenerateJwtResponse {
+                jwt: None,
+                message: "No CTFNote account linked to the Discord user.".to_string(),
+            }),
+        );
+    };
+
+    let jwt: Jwt = sqlx::query_scalar("SELECT ctfnote_private.new_token($1)")
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to generate JWT");
+
+    if jwt.role.is_none() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(GenerateJwtResponse {
+                jwt: None,
+                message: "Cannot generate JWT for the user. This is unexpected.".to_string(),
+            }),
+        );
+    }
+
+    let jwt_encoded = jsonwebtoken::encode(
+        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
+        &JwtClaim {
+            user_id: jwt.user_id,
+            role: jwt.role.clone().unwrap(),
+            exp: (get_current_timestamp() + 1800) as usize,
+            iat: get_current_timestamp() as usize,
+            aud: "postgraphile".to_string(),
+            iss: "Admin API".to_string(),
+        },
+        &jsonwebtoken::EncodingKey::from_secret(config.session_secret.as_bytes()),
+    )
+    .unwrap();
+
+    return (
+        StatusCode::OK,
+        Json(GenerateJwtResponse {
+            jwt: Some(jwt_encoded),
+            message: "Successfully generated JWT!".to_string(),
+        }),
+    );
+}
+
 #[tokio::main]
 async fn main() {
     eprintln!("Server started");
@@ -81,6 +207,7 @@ async fn main() {
 
     let admin_api_routes = Router::new()
         .route("/link-discord", post(link_discord))
+        .route("/generate-jwt", post(generate_jwt))
         .with_state(pool);
 
     let app = Router::new().nest("/api/admin", admin_api_routes);

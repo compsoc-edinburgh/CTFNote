@@ -9,3 +9,4 @@ dotenvy = "0.15.7"
 serde = { version = "1.0.203", features = ["derive"] }
 tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 sqlx = { version = "0.7.4", features = ["runtime-tokio-rustls", "postgres"] }
+jsonwebtoken = "9.3.0"

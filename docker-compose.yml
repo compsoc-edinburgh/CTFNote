@@ -83,6 +83,7 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgres://ctfnote:ctfnote@db:5432/ctfnote
+      - SESSION_SECRET=${SESSION_SECRET:-}
     networks:
       - ctfnote
 volumes:
