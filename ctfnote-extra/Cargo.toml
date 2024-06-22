@@ -14,5 +14,6 @@ tracing-subscriber = { "version" = "0.3.18", features = ["env-filter"] }
 tracing = "0.1.40"
 tower-http = { version = "0.5.2", features = ["trace"] }
 askama = "0.12.1"
-axum_csrf = "0.9.0"
+axum_csrf = { version = "0.9.0", features = ["layer"] }
 rand = "0.8.5"
+hex = "0.4.3"

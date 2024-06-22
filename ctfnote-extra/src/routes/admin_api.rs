@@ -1,17 +1,15 @@
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
-use jsonwebtoken::get_current_timestamp;
-use rand::{self, thread_rng, RngCore};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
 
-use crate::{config::config, AppState};
+use crate::{tokens::Token, utils::get_random_hex_string, AppState};
 
 pub fn route(app_state: Arc<AppState>) -> Router {
     Router::new()
         .route("/link-discord", post(link_discord))
-        .route("/generate-jwt", post(generate_jwt_for_discord_user))
+        .route("/get-token", post(get_token_for_discord_user))
         .route("/register", post(register_and_link_discord))
         .with_state(app_state)
 }
@@ -77,35 +75,31 @@ async fn link_discord(
     let discord_id = link_discord_request.discord_id;
     let result = set_discord_id_for_user(db_pool, user_id, &discord_id).await;
     if result.rows_affected() != 1 {
-        return (StatusCode::BAD_REQUEST, Json(LinkDiscordResponse {
-            message: "You can't link the same Discord account twice!".to_string(),
-        }));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(LinkDiscordResponse {
+                message: "You can't link the same Discord account twice!".to_string(),
+            }),
+        );
     }
     tracing::info!("Linked user {} to Discord user {}", user_id, discord_id);
     return (
         StatusCode::OK,
         Json(LinkDiscordResponse {
-            message: "Successfully linked Discord account to CTFNote account!"
-                .to_string(),
+            message: "Successfully linked Discord account to CTFNote account!".to_string(),
         }),
     );
 }
 
 #[derive(Deserialize)]
-struct GenerateJwtForDiscordUserRequest {
+struct GetTokenForDiscordUserRequest {
     discord_id: String,
 }
 
 #[derive(Serialize)]
-struct GenerateJwtForDiscordUserResponse {
-    jwt: Option<GenerateJwtResponseJwt>,
+struct GetTokenForDiscordUserResponse {
+    token: Option<Token>,
     message: String,
-}
-
-#[derive(Serialize)]
-struct GenerateJwtResponseJwt {
-    token: String,
-    claim: JwtClaim,
 }
 
 #[derive(sqlx::Type, Debug)]
@@ -141,77 +135,33 @@ impl Serialize for Role {
     }
 }
 
-#[derive(Serialize)]
-struct JwtClaim {
-    user_id: i32,
-    role: Role,
-    exp: usize,
-    iat: usize,
-    aud: String,
-    iss: String,
-}
-
-async fn generate_jwt_for_discord_user(
+async fn get_token_for_discord_user(
     State(app_state): State<Arc<AppState>>,
-    Json(request): Json<GenerateJwtForDiscordUserRequest>,
-) -> (StatusCode, Json<GenerateJwtForDiscordUserResponse>) {
+    Json(request): Json<GetTokenForDiscordUserRequest>,
+) -> (StatusCode, Json<GetTokenForDiscordUserResponse>) {
     let db_pool = &app_state.db_pool;
-    let config = config();
     let discord_id = request.discord_id;
 
-    let result = get_user_by_discord_id(db_pool, &discord_id).await;
+    let result: Option<i32> = get_user_by_discord_id(db_pool, &discord_id).await;
     let Some(user_id) = result else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(GenerateJwtForDiscordUserResponse {
-                jwt: None,
+            Json(GetTokenForDiscordUserResponse {
+                token: None,
                 message: "No CTFNote account linked to the Discord user.".to_string(),
             }),
         );
     };
 
-    let jwt: Jwt = sqlx::query_scalar("SELECT ctfnote_private.new_token($1)")
-        .bind(user_id)
-        .fetch_one(db_pool)
-        .await
-        .expect("Failed to generate JWT");
+    let token = app_state.tokens.lock().unwrap().add_token_for_user(user_id);
 
-    if jwt.role.is_none() {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(GenerateJwtForDiscordUserResponse {
-                jwt: None,
-                message: "Cannot generate JWT for the user. This is unexpected.".to_string(),
-            }),
-        );
-    }
-
-    let claim = JwtClaim {
-        user_id: jwt.user_id,
-        role: jwt.role.clone().unwrap(),
-        exp: (get_current_timestamp() + 300) as usize,
-        iat: get_current_timestamp() as usize,
-        aud: "postgraphile".to_string(),
-        iss: "Admin API".to_string(),
-    };
-
-    let jwt_encoded = jsonwebtoken::encode(
-        &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
-        &claim,
-        &jsonwebtoken::EncodingKey::from_secret(config.session_secret.as_bytes()),
-    )
-    .unwrap();
-
-    return (
-        StatusCode::OK,
-        Json(GenerateJwtForDiscordUserResponse {
-            jwt: Some(GenerateJwtResponseJwt {
-                token: jwt_encoded,
-                claim,
-            }),
-            message: "Successfully generated JWT!".to_string(),
+    (
+        StatusCode::BAD_REQUEST,
+        Json(GetTokenForDiscordUserResponse {
+            token: Some(token),
+            message: "Successfully created token.".to_string(),
         }),
-    );
+    )
 }
 
 #[derive(Deserialize)]
@@ -243,12 +193,11 @@ async fn register_and_link_discord(
         );
     }
 
-    let mut random_password = vec![0; 32];
-    thread_rng().fill_bytes(&mut random_password);
+    let random_password = get_random_hex_string(32);
     let result: Result<Jwt, sqlx::Error> =
         sqlx::query_scalar("SELECT ctfnote_private.do_register($1, $2, 'user_guest')")
             .bind(request.username)
-            .bind(format!("{:x?}", random_password))
+            .bind(random_password)
             .fetch_one(db_pool)
             .await;
 

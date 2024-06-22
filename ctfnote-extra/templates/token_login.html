@@ -4,14 +4,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CTFNote - Token Login</title>
+  <title>CTFNote - Token Login - Login</title>
 </head>
 
 <body>
-  <h1>Token Login</h1>
+  <h1>CTFNote</h1>
+  <h2>Token Login</h2>
   <div>Logging you in...</div>
   <script>
-    localStorage.setItem('JWT', '{{ token }}');
+    localStorage.setItem('JWT', '{{ jwt }}');
     window.location.replace('/');
   </script>
 </body>

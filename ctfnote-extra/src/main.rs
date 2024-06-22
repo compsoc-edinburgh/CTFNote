@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::Router;
-use axum_csrf::CsrfConfig;
+use axum_csrf::{CsrfConfig, CsrfLayer};
+use config::Config;
 use sqlx;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
@@ -10,12 +11,17 @@ use tracing::Level;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::config;
+use crate::tokens::Tokens;
 
 mod config;
 mod routes;
+mod tokens;
+mod utils;
 
 struct AppState {
+    config: Config,
     db_pool: PgPool,
+    tokens: Mutex<Tokens>,
 }
 
 #[tokio::main]
@@ -45,19 +51,24 @@ async fn main() {
     //TODO: use csrf as middleware
     let csrf = CsrfConfig::default().with_cookie_name("ctf-extra_csrf_token");
 
+    let tokens = Tokens::new();
+
     let app_state = Arc::new(AppState {
+        config,
         db_pool,
+        tokens: Mutex::new(tokens),
     });
 
     let app = Router::new()
         .nest("/api/admin", routes::admin_api::route(app_state.clone()))
-        .nest("/", routes::pages::route(csrf))
+        .nest("/", routes::pages::route(app_state.clone()))
         .layer(
             TraceLayer::new_for_http()
             .on_response(
                 DefaultOnResponse::new().level(Level::INFO)
             )
-        );
+        )
+        .layer(CsrfLayer::new(csrf));
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

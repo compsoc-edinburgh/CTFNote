@@ -221,6 +221,8 @@ dependencies = [
  "sha2",
  "thiserror",
  "time",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]
@@ -410,6 +412,7 @@ dependencies = [
  "axum",
  "axum_csrf",
  "dotenvy",
+ "hex",
  "jsonwebtoken",
  "rand",
  "serde",
