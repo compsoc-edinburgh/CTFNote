@@ -1,10 +1,9 @@
-use core::fmt;
 use std::time::Duration;
 
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{get, post},
+    routing::post,
     Json, Router,
 };
 use jsonwebtoken::get_current_timestamp;
@@ -88,8 +87,14 @@ struct GenerateJwtRequest {
 
 #[derive(Serialize)]
 struct GenerateJwtResponse {
-    jwt: Option<String>,
+    jwt: Option<GenerateJwtResponseJwt>,
     message: String,
+}
+
+#[derive(Serialize)]
+struct GenerateJwtResponseJwt {
+    token: String,
+    claim: JwtClaim,
 }
 
 #[derive(sqlx::Type, Debug)]
@@ -169,16 +174,18 @@ async fn generate_jwt(
         );
     }
 
+    let claim = JwtClaim {
+        user_id: jwt.user_id,
+        role: jwt.role.clone().unwrap(),
+        exp: (get_current_timestamp() + 1800) as usize,
+        iat: get_current_timestamp() as usize,
+        aud: "postgraphile".to_string(),
+        iss: "Admin API".to_string(),
+    };
+
     let jwt_encoded = jsonwebtoken::encode(
         &jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256),
-        &JwtClaim {
-            user_id: jwt.user_id,
-            role: jwt.role.clone().unwrap(),
-            exp: (get_current_timestamp() + 1800) as usize,
-            iat: get_current_timestamp() as usize,
-            aud: "postgraphile".to_string(),
-            iss: "Admin API".to_string(),
-        },
+        &claim,
         &jsonwebtoken::EncodingKey::from_secret(config.session_secret.as_bytes()),
     )
     .unwrap();
@@ -186,7 +193,10 @@ async fn generate_jwt(
     return (
         StatusCode::OK,
         Json(GenerateJwtResponse {
-            jwt: Some(jwt_encoded),
+            jwt: Some(GenerateJwtResponseJwt {
+                token: jwt_encoded,
+                claim,
+            }),
             message: "Successfully generated JWT!".to_string(),
         }),
     );
