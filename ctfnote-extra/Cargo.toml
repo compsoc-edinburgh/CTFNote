@@ -10,3 +10,6 @@ serde = { version = "1.0.203", features = ["derive"] }
 tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 sqlx = { version = "0.7.4", features = ["runtime-tokio-rustls", "postgres"] }
 jsonwebtoken = "9.3.0"
+tracing-subscriber = { "version" = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"
+tower-http = { version = "0.5.2", features = ["trace"] }

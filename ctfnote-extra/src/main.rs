@@ -5,6 +5,9 @@ use axum::Router;
 use routes::admin_api::route;
 use sqlx;
 use sqlx::{postgres::PgPoolOptions, PgPool};
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::Level;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::config::config;
 
@@ -17,9 +20,20 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    eprintln!("Server started");
     // load config
     let config = config().await;
+
+    // start tracing - level set by either RUST_LOG env variable or defaults to debug
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                // axum logs rejections from built-in extractors with the `axum::rejection`
+                // target, at `TRACE` level. `axum::rejection=trace` enables showing those events
+                "ctfnote_extra=debug,tower_http=debug,axum::rejection=trace".into()
+            }),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let db_pool = PgPoolOptions::new()
         .max_connections(5)
@@ -28,13 +42,19 @@ async fn main() {
         .await
         .expect("Failed to connect to database");
 
-    let app_state = Arc::new(AppState {
-        db_pool
-    });
+    let app_state = Arc::new(AppState { db_pool });
 
-    let app = Router::new().nest("/api/admin", route(app_state.clone()));
+    let app = Router::new()
+        .nest("/api/admin", route(app_state.clone()))
+        .layer(
+            TraceLayer::new_for_http()
+            .on_response(
+                DefaultOnResponse::new().level(Level::INFO)
+            )
+        );
 
     // run our app with hyper, listening globally on port 3000
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    tracing::info!("listening on {}", listener.local_addr().unwrap());
     axum::serve(listener, app).await.unwrap();
 }
