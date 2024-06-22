@@ -178,7 +178,7 @@ async fn generate_jwt(
     let claim = JwtClaim {
         user_id: jwt.user_id,
         role: jwt.role.clone().unwrap(),
-        exp: (get_current_timestamp() + 1800) as usize,
+        exp: (get_current_timestamp() + 300) as usize,
         iat: get_current_timestamp() as usize,
         aud: "postgraphile".to_string(),
         iss: "Admin API".to_string(),

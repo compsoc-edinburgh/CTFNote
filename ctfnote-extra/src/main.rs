@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use routes::admin_api::route;
+use axum_csrf::CsrfConfig;
 use sqlx;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use tower_http::trace::{DefaultOnResponse, TraceLayer};
@@ -42,10 +42,16 @@ async fn main() {
         .await
         .expect("Failed to connect to database");
 
-    let app_state = Arc::new(AppState { db_pool });
+    //TODO: use csrf as middleware
+    let csrf = CsrfConfig::default().with_cookie_name("ctf-extra_csrf_token");
+
+    let app_state = Arc::new(AppState {
+        db_pool,
+    });
 
     let app = Router::new()
-        .nest("/api/admin", route(app_state.clone()))
+        .nest("/api/admin", routes::admin_api::route(app_state.clone()))
+        .nest("/", routes::pages::route(csrf))
         .layer(
             TraceLayer::new_for_http()
             .on_response(

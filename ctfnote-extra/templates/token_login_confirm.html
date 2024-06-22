@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CTFNote - Token Login - Confirm</title>
+</head>
+
+<body>
+  <h1>Confirm Token Login</h1>
+  <form method="post">
+    <div>
+      You are about to attempt logging in with a token, do you want to continue?
+    </div>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" id="tokenInput" name="token" value="">
+    <input type="submit" value="Continue">
+  </form>
+  <script>
+    const hash = window.location.hash.split('#')[1]
+    const parsedHash = new URLSearchParams(hash)
+    const token = parsedHash.get('token')
+    tokenInput.value = token;
+  </script>
+</body>
+
+</html>
