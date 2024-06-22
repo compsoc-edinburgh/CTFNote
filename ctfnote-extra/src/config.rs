@@ -6,7 +6,7 @@ pub struct Config {
     pub session_secret: String,
 }
 
-pub async fn config() -> Config {
+pub fn config() -> Config {
     dotenv().ok();
 
     Config {

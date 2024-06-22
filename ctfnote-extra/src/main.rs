@@ -21,7 +21,7 @@ struct AppState {
 #[tokio::main]
 async fn main() {
     // load config
-    let config = config().await;
+    let config = config();
 
     // start tracing - level set by either RUST_LOG env variable or defaults to debug
     tracing_subscriber::registry()
