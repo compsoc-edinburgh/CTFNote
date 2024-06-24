@@ -34,6 +34,7 @@ impl Tokens {
     pub fn add_token_for_user(&mut self, user_id: i32) -> Token {
         self.remove_expired();
         self.0.retain(|t| t.user_id != user_id);
+        //TODO: check token uniqueness (though it's highly unlikely a problem with 32 bytes random)
         let token = get_random_hex_string(32);
         let token = Token {
             token,
