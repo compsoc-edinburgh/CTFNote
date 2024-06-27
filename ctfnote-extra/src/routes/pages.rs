@@ -113,7 +113,7 @@ async fn token_login(
     let config = &app_state.config;
 
     let token = request.token;
-    let token = app_state.tokens.lock().unwrap().verify_token(token);
+    let token = app_state.tokens.lock().unwrap().consume_token(&token);
     let Some(token) = token else {
         return (StatusCode::BAD_REQUEST, "Invalid token.").into_response();
     };
