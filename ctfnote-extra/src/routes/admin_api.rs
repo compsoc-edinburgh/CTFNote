@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
+use chrono::{DateTime, Utc, serde::ts_seconds};
 
 use crate::{tokens::Token, utils::get_random_hex_string, AppState};
 
@@ -11,6 +12,7 @@ pub fn route(app_state: Arc<AppState>) -> Router {
         .route("/link-discord", post(link_discord))
         .route("/get-token", post(get_token_for_discord_user))
         .route("/register", post(register_and_link_discord))
+        .route("/upcoming-ctf", get(upcoming_ctfs))
         .with_state(app_state)
 }
 
@@ -226,5 +228,41 @@ async fn register_and_link_discord(
         Json(RegisterAndLinkDiscordResponse {
             message: "Successfully created CTFNote account!".to_string(),
         }),
+    )
+}
+
+#[derive(sqlx::Type, Debug, Serialize)]
+#[sqlx(type_name = "ctf")]
+struct Ctf {
+    id: i32,
+    title: String,
+    weight: f64,
+    ctf_url: String,
+    logo_url: String,
+    ctftime_url: String,
+    description: String,
+    #[serde(with = "ts_seconds")]
+    start_time: DateTime<Utc>,
+    #[serde(with = "ts_seconds")]
+    end_time: DateTime<Utc>,
+    // secrets_id: foreign key
+}
+
+#[derive(Serialize)]
+struct GetUpcomingCtfResponse(Vec<Ctf>);
+
+async fn upcoming_ctfs(
+    State(app_state): State<Arc<AppState>>,
+) -> (StatusCode, Json<GetUpcomingCtfResponse>) {
+    let db_pool = &app_state.db_pool;
+
+    let result: Result<Vec<Ctf>, sqlx::Error> = sqlx::query_scalar("SELECT ctfnote.incoming_ctf()")
+        .fetch_all(db_pool)
+        .await;
+
+
+    (
+        StatusCode::OK,
+        Json(GetUpcomingCtfResponse(result.unwrap())),
     )
 }
