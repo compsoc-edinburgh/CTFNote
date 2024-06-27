@@ -1,9 +1,14 @@
 use std::sync::Arc;
 
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
+use chrono::{serde::ts_seconds, DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{postgres::PgQueryResult, PgPool};
-use chrono::{DateTime, Utc, serde::ts_seconds};
 
 use crate::{tokens::Token, utils::get_random_hex_string, AppState};
 
@@ -12,6 +17,7 @@ pub fn route(app_state: Arc<AppState>) -> Router {
         .route("/link-discord", post(link_discord))
         .route("/get-token", post(get_token_for_discord_user))
         .route("/register", post(register_and_link_discord))
+        .route("/role", get(get_role_for_discord_user))
         .route("/upcoming-ctf", get(upcoming_ctfs))
         .with_state(app_state)
 }
@@ -231,6 +237,46 @@ async fn register_and_link_discord(
     )
 }
 
+#[derive(Deserialize)]
+struct GetRoleForDiscordUserRequest {
+    discord_id: String,
+}
+
+#[derive(Serialize)]
+struct GetRoleForDiscordUserResponse {
+    role: Option<Role>,
+    message: String,
+}
+
+async fn get_role_for_discord_user(
+    State(app_state): State<Arc<AppState>>,
+    Query(request): Query<GetRoleForDiscordUserRequest>,
+) -> (StatusCode, Json<GetRoleForDiscordUserResponse>) {
+    let db_pool = &app_state.db_pool;
+    let discord_id = request.discord_id;
+
+    let role: Option<Role> = sqlx::query_scalar("SELECT u.role FROM ctfnote_private.user as u JOIN ctfnote.profile as profile ON u.id = profile.id WHERE discord_id = $1")
+        .bind(&discord_id)
+        .fetch_optional(db_pool)
+        .await.expect("Failed to get role from discord id");
+    let message = match role {
+        Some(_) => "Successfully get role of the user.",
+        None =>  "Cannot get role for the user.",
+    };
+    let status_code = match role {
+        Some(_) => StatusCode::OK,
+        None => StatusCode::NOT_FOUND,
+    };
+
+    (
+        status_code,
+        Json(GetRoleForDiscordUserResponse {
+            role,
+            message: message.to_string(),
+        }),
+    )
+}
+
 #[derive(sqlx::Type, Debug, Serialize)]
 #[sqlx(type_name = "ctf")]
 struct Ctf {
@@ -259,7 +305,6 @@ async fn upcoming_ctfs(
     let result: Result<Vec<Ctf>, sqlx::Error> = sqlx::query_scalar("SELECT ctfnote.incoming_ctf()")
         .fetch_all(db_pool)
         .await;
-
 
     (
         StatusCode::OK,
