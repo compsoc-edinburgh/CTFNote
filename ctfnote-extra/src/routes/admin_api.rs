@@ -19,6 +19,7 @@ pub fn route(app_state: Arc<AppState>) -> Router {
         .route("/register", post(register_and_link_discord))
         .route("/role", get(get_role_for_discord_user))
         .route("/upcoming-ctf", get(upcoming_ctfs))
+        .route("/add-to-ctf", post(add_discord_user_to_ctf))
         .with_state(app_state)
 }
 
@@ -273,6 +274,54 @@ async fn get_role_for_discord_user(
         Json(GetRoleForDiscordUserResponse {
             role,
             message: message.to_string(),
+        }),
+    )
+}
+
+#[derive(Deserialize)]
+struct AddDiscordUserToCtfRequest {
+    discord_id: String,
+    ctf_id: i32,
+}
+
+#[derive(Serialize)]
+struct AddDiscordUserToCtfResponse {
+    message: String,
+}
+
+async fn add_discord_user_to_ctf(
+    State(app_state): State<Arc<AppState>>,
+    Json(request): Json<AddDiscordUserToCtfRequest>,
+ ) -> (StatusCode, Json<AddDiscordUserToCtfResponse>) {
+    let db_pool = &app_state.db_pool;
+    let discord_id = request.discord_id;
+    let ctf_id = request.ctf_id;
+    let result = sqlx::query("INSERT INTO ctfnote.invitation(ctf_id, profile_id) SELECT $2, u.id FROM ctfnote_private.user as u JOIN ctfnote.profile as profile ON u.id = profile.id WHERE discord_id = $1")
+        .bind(discord_id)
+        .bind(ctf_id)
+        .execute(db_pool)
+        .await;
+    let Ok(result) = result else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AddDiscordUserToCtfResponse {
+                message: "User already added to the CTF on CTFNote.".to_string(),
+            }),
+        );
+    };
+    if result.rows_affected() != 1 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AddDiscordUserToCtfResponse {
+                message: "Discord user is not linked to CTFNote account or the CTF no longer exists on CTFNote.".to_string(),
+            }),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(AddDiscordUserToCtfResponse {
+            message: "Successfully added Discord user to CTF on CTFNote.".to_string(),
         }),
     )
 }
