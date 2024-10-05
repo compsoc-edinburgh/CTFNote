@@ -53,7 +53,7 @@ services:
     build:
       context: "./front"
       args:
-      - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-}
+      - ADMIN_API_PASSWORD=${ADMIN_API_PASSWORD:-} # set this otherwise build will fail, preferably make a docker-compose.local.yml file to run locally
     depends_on:
       - hedgedoc
     ports:
