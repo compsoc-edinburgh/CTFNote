@@ -332,9 +332,9 @@ struct Ctf {
     id: i32,
     title: String,
     weight: f64,
-    ctf_url: String,
-    logo_url: String,
-    ctftime_url: String,
+    ctf_url: Option<String>,
+    logo_url: Option<String>,
+    ctftime_url: Option<String>,
     description: String,
     #[serde(with = "ts_seconds")]
     start_time: DateTime<Utc>,
